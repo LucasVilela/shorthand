@@ -40,8 +40,13 @@ final class SnippetStore {
         if !FileManager.default.fileExists(atPath: variablesURL.path) { save(variables, to: variablesURL) }
     }
 
+    /// ~/Library/Application Support/Shorthand, or SHORTHAND_DATA_DIR when set, so a
+    /// development build can run against test data instead of yours.
     static var defaultDirectory: URL {
-        URL.applicationSupportDirectory.appending(path: "Shorthand", directoryHint: .isDirectory)
+        if let override = ProcessInfo.processInfo.environment["SHORTHAND_DATA_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return URL.applicationSupportDirectory.appending(path: "Shorthand", directoryHint: .isDirectory)
     }
 
     /// Saved variables by name, ready for `MacroExpander`.

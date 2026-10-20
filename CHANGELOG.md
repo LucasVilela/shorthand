@@ -4,14 +4,15 @@
 
 ### Added
 - **Clipboard history.** Press **⌥⌘V** anywhere, or choose Clipboard History… in the menu
-  bar, to see what you've copied. Recent copies are grouped by day, each with the icon of the
-  app it came from and a full preview.
+  bar, to see the text and images you've copied. Recent copies are grouped by day, each with
+  the icon of the app it came from (or a thumbnail for an image) and a full preview.
   - **Paste (↵)** pastes an entry into the app you were in. **Copy (⌘C)** only puts it back
     on the clipboard.
-  - **Save as Prompt (⌘S)** turns it into a Prompt Bank entry.
+  - Images paste back as real images, into Slack, Notes, Figma and so on.
+  - **Save as Prompt (⌘S)** turns text into a Prompt Bank entry.
   - **Delete (⌘⌫)** removes it from the history.
-- **Private by default.** History keeps text only, up to the last 200 copies, saved where
-  only you can read it. It never records passwords that password managers mark as concealed,
+- **Private by default.** History keeps the last 200 copies, including up to 50 images,
+  saved where only you can read it. Images dropped from the history are deleted. It never records passwords that password managers mark as concealed,
   or Shorthand's own snippet pastes. Turn it off with Record Clipboard History in the menu
   bar, or clear it with Clear Clipboard History.
 

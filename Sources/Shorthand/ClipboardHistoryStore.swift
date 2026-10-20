@@ -1,9 +1,11 @@
 import AppKit
+import CryptoKit
 import Observation
 import ShorthandCore
 
-/// Watches the clipboard and keeps a history of copied text, saved in
-/// ~/Library/Application Support/Shorthand/clipboard.json (readable only by you).
+/// Watches the clipboard and keeps a history of copied text and images, saved in
+/// ~/Library/Application Support/Shorthand/: clipboard.json for the list and
+/// ClipboardImages/ for the pictures, both readable only by you.
 @MainActor
 @Observable
 final class ClipboardHistoryStore {
@@ -14,10 +16,13 @@ final class ClipboardHistoryStore {
     }
 
     @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored let imagesURL: URL
     @ObservationIgnored private var lastChangeCount: Int
     @ObservationIgnored private var timer: Timer?
 
     private static let recordingKey = "recordsClipboardHistory"
+    /// Bigger images (a huge screenshot of a 6K display, say) aren't kept.
+    private static let maxImageBytes = 25_000_000
 
     /// Copies that ask not to be remembered: password managers mark passwords concealed,
     /// and Shorthand marks its own snippet pastes transient (see nspasteboard.org).
@@ -29,6 +34,7 @@ final class ClipboardHistoryStore {
 
     init(directory: URL = SnippetStore.defaultDirectory) {
         fileURL = directory.appending(path: "clipboard.json")
+        imagesURL = directory.appending(path: "ClipboardImages", directoryHint: .isDirectory)
         history = ClipboardHistory(entries: Self.load(from: fileURL))
         isRecording = UserDefaults.standard.object(forKey: Self.recordingKey) as? Bool ?? true
         lastChangeCount = NSPasteboard.general.changeCount
@@ -36,6 +42,10 @@ final class ClipboardHistoryStore {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkClipboard() }
         }
+    }
+
+    func imageURL(for image: ClipboardImage) -> URL {
+        imagesURL.appending(path: image.fileName)
     }
 
     func delete(id: ClipboardEntry.ID) {
@@ -48,18 +58,75 @@ final class ClipboardHistoryStore {
         save()
     }
 
+    /// Puts an entry back on the clipboard: the text, or the image as PNG and TIFF so
+    /// every app can paste it.
+    func putOnClipboard(_ entry: ClipboardEntry) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard let image = entry.image else {
+            pasteboard.setString(entry.text, forType: .string)
+            return
+        }
+        guard let png = try? Data(contentsOf: imageURL(for: image)) else { return }
+        let item = NSPasteboardItem()
+        item.setData(png, forType: .png)
+        if let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation {
+            item.setData(tiff, forType: .tiff)
+        }
+        pasteboard.writeObjects([item])
+    }
+
     private func checkClipboard() {
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
         guard isRecording else { return }
         if let types = pasteboard.types, types.contains(where: Self.skippedTypes.contains) { return }
-        guard let text = pasteboard.string(forType: .string) else { return }
 
         let app = NSWorkspace.shared.frontmostApplication
-        if history.record(text, sourceBundleID: app?.bundleIdentifier, sourceName: app?.localizedName) {
+        // Text wins when both are there (a Finder file copy also carries its icon, say).
+        if let text = pasteboard.string(forType: .string) {
+            if history.record(text, sourceBundleID: app?.bundleIdentifier, sourceName: app?.localizedName) {
+                save()
+            }
+        } else if let image = saveImage(from: pasteboard) {
+            history.record(image, sourceBundleID: app?.bundleIdentifier, sourceName: app?.localizedName)
             save()
         }
+    }
+
+    /// Writes the clipboard's image to ClipboardImages/<hash>.png and describes it,
+    /// or returns nil when there's no image (or it's too big).
+    private func saveImage(from pasteboard: NSPasteboard) -> ClipboardImage? {
+        let png: Data
+        let rep: NSBitmapImageRep
+        if let data = pasteboard.data(forType: .png), let bitmap = NSBitmapImageRep(data: data) {
+            png = data
+            rep = bitmap
+        } else if let tiff = pasteboard.data(forType: .tiff),
+                  let bitmap = NSBitmapImageRep(data: tiff),
+                  let data = bitmap.representation(using: .png, properties: [:]) {
+            png = data
+            rep = bitmap
+        } else {
+            return nil
+        }
+        guard png.count <= Self.maxImageBytes else { return nil }
+
+        let hash = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
+        let image = ClipboardImage(hash: hash, width: rep.pixelsWide, height: rep.pixelsHigh, byteCount: png.count)
+        let url = imageURL(for: image)
+        do {
+            try FileManager.default.createDirectory(at: imagesURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try png.write(to: url, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            }
+        } catch {
+            NSLog("Shorthand: couldn't save copied image: \(error)")
+            return nil
+        }
+        return image
     }
 
     private static func load(from url: URL) -> [ClipboardEntry] {
@@ -79,6 +146,16 @@ final class ClipboardHistoryStore {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             NSLog("Shorthand: couldn't save clipboard history: \(error)")
+        }
+        removeUnusedImages()
+    }
+
+    /// Deletes image files no entry points to any more (dropped, deleted or cleared).
+    private func removeUnusedImages() {
+        let inUse = history.imageFileNames
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: imagesURL.path)) ?? []
+        for file in files where file.hasSuffix(".png") && !inUse.contains(file) {
+            try? FileManager.default.removeItem(at: imagesURL.appending(path: file))
         }
     }
 }

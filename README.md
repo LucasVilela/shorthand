@@ -14,9 +14,9 @@ and it becomes your full text. Type `;;` to search a bank of prompts you reuse o
   - Any other `{Name}` is asked for in a small form when you insert the snippet.
 - **Prompt Bank:** snippets with no abbreviation. Type `;;` anywhere for a searchable
   launcher, or pick one from the menu bar.
-- **Clipboard history:** press ⌥⌘V to search what you've copied and paste it again. It keeps
-  text only, the last 200 copies, and skips passwords that password managers mark as
-  concealed.
+- **Clipboard history:** press ⌥⌘V to search the text and images you've copied and paste them
+  again. It keeps the last 200 copies (up to 50 of them images), and skips passwords that
+  password managers mark as concealed.
 
 The [changelog](CHANGELOG.md) covers every feature.
 
@@ -43,6 +43,9 @@ swift test                  # run the tests
 ./scripts/build-app.sh      # build and sign build/Shorthand.app
 open build/Shorthand.app
 ```
+
+To try a build without touching your own snippets and history, point it at another folder:
+`SHORTHAND_DATA_DIR=/tmp/shorthand-test .build/debug/Shorthand`.
 
 `build-app.sh` signs with a Developer ID certificate if you have one, otherwise with an Apple
 Development certificate. The signature matters: macOS remembers the Accessibility permission

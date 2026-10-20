@@ -326,3 +326,47 @@ import Testing
         #expect(history.entries.isEmpty)
     }
 }
+
+@Suite struct ClipboardImageTests {
+    func image(_ hash: String) -> ClipboardImage {
+        ClipboardImage(hash: hash, width: 1920, height: 1080, byteCount: 1000)
+    }
+
+    @Test func sameImageMovesToTheTopAndTextStaysSeparate() {
+        var history = ClipboardHistory()
+        history.record(image("a"))
+        history.record("note")
+        history.record(image("a"), sourceName: "Preview")
+        #expect(history.entries.map(\.title) == ["Image · 1920×1080", "note"])
+        #expect(history.entries.first?.sourceName == "Preview")
+        #expect(history.imageFileNames == ["a.png"])
+    }
+
+    @Test func keepsOnlyTheNewestImagesPastTheImageLimit() {
+        var history = ClipboardHistory(limit: 10, imageLimit: 2)
+        history.record("text 1")
+        for hash in ["a", "b", "c"] { history.record(image(hash)) }
+        history.record("text 2")
+        #expect(history.entries.compactMap(\.image?.hash) == ["c", "b"])
+        #expect(history.entries.filter { $0.image == nil }.map(\.text) == ["text 2", "text 1"])
+        #expect(history.imageFileNames == ["b.png", "c.png"])
+    }
+
+    @Test func searchFindsImagesByWordOrSourceButNotByHash() {
+        var history = ClipboardHistory()
+        history.record(image("deadbeef"), sourceName: "Figma")
+        history.record("plain text")
+        #expect(history.search("image").count == 1)
+        #expect(history.search("figma").count == 1)
+        #expect(history.search("deadbeef").isEmpty)
+    }
+
+    @Test func historySavedBeforeImagesStillLoads() throws {
+        let json = #"[{"id":"7D3B5E1A-1F5B-4C6E-9A4B-2D8E6F0A1B2C","text":"old copy","date":"2026-10-20T10:00:00Z","sourceName":"Notes"}]"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let entries = try decoder.decode([ClipboardEntry].self, from: Data(json.utf8))
+        #expect(entries.first?.text == "old copy")
+        #expect(entries.first?.image == nil)
+    }
+}

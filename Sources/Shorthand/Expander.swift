@@ -51,22 +51,17 @@ enum Expander {
             guard let target, !target.isTerminated else { return }
             reactivate(target) {
                 switch choice {
-                case .paste(let text):
+                case .paste(let entry):
                     // Not marked transient: pasting an old entry makes it the newest.
-                    putOnClipboard(text)
+                    store.putOnClipboard(entry)
                     press(KeyCode.v, flags: .maskCommand)
-                case .copy(let text):
-                    putOnClipboard(text)
+                case .copy(let entry):
+                    store.putOnClipboard(entry)
                 case .saveAsPrompt:
                     break
                 }
             }
         }
-    }
-
-    private static func putOnClipboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     /// Inserts `snippet` at the caret of the frontmost app, after deleting the `count`

@@ -1,10 +1,11 @@
 import AppKit
+import ImageIO
 import ShorthandCore
 import SwiftUI
 
 enum ClipboardChoice {
-    case paste(String)
-    case copy(String)
+    case paste(ClipboardEntry)
+    case copy(ClipboardEntry)
     case saveAsPrompt(String)
 }
 
@@ -68,25 +69,33 @@ private struct ClipboardHistoryView: View {
                     list
                         .frame(width: 320)
                     Divider()
-                    ClipboardPreview(entry: current)
+                    ClipboardPreview(entry: current, imageURL: current.image.map(store.imageURL(for:)))
                 }
             } else {
                 emptyState
             }
             ActionBar(
                 status: "Clipboard History",
-                actions: current.map { entry in
-                    [
-                        .init(title: "Paste", keys: ["↵"]) { onFinish(.paste(entry.text)) },
-                        .init(title: "Copy", keys: ["⌘", "C"], shortcut: KeyboardShortcut("c")) { onFinish(.copy(entry.text)) },
-                        .init(title: "Save as Prompt", keys: ["⌘", "S"], shortcut: KeyboardShortcut("s")) { onFinish(.saveAsPrompt(entry.text)) },
-                        .init(title: "Delete", keys: ["⌘", "⌫"], shortcut: KeyboardShortcut(.delete)) { delete(entry) },
-                    ]
-                } ?? []
+                actions: current.map(actions(for:)) ?? []
             )
         }
         .frame(width: 760, height: 460)
         .onAppear { isSearchFocused = true }
+    }
+
+    private func actions(for entry: ClipboardEntry) -> [ActionBar.Action] {
+        var actions: [ActionBar.Action] = [
+            .init(title: "Paste", keys: ["↵"]) { onFinish(.paste(entry)) },
+            .init(title: "Copy", keys: ["⌘", "C"], shortcut: KeyboardShortcut("c")) { onFinish(.copy(entry)) },
+        ]
+        // A prompt is text, so images can't become one.
+        if entry.image == nil {
+            actions.append(.init(title: "Save as Prompt", keys: ["⌘", "S"], shortcut: KeyboardShortcut("s")) {
+                onFinish(.saveAsPrompt(entry.text))
+            })
+        }
+        actions.append(.init(title: "Delete", keys: ["⌘", "⌫"], shortcut: KeyboardShortcut(.delete)) { delete(entry) })
+        return actions
     }
 
     private var searchField: some View {
@@ -95,7 +104,7 @@ private struct ClipboardHistoryView: View {
             .font(.system(size: 20))
             .focused($isSearchFocused)
             .onSubmit {
-                if let current { onFinish(.paste(current.text)) }
+                if let current { onFinish(.paste(current)) }
             }
             .onKeyPress(.upArrow) { move(by: -1); return .handled }
             .onKeyPress(.downArrow) { move(by: 1); return .handled }
@@ -116,10 +125,10 @@ private struct ClipboardHistoryView: View {
                             .padding(.top, 12)
                             .padding(.bottom, 4)
                         ForEach(section.entries) { entry in
-                            ClipboardRow(entry: entry, isSelected: entry.id == current?.id)
+                            ClipboardRow(entry: entry, imageURL: entry.image.map(store.imageURL(for:)), isSelected: entry.id == current?.id)
                                 .id(entry.id)
                                 .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { onFinish(.paste(entry.text)) }
+                                .onTapGesture(count: 2) { onFinish(.paste(entry)) }
                                 .onTapGesture { selectedID = entry.id }
                         }
                     }
@@ -161,7 +170,7 @@ private struct ClipboardHistoryView: View {
             } else if store.isRecording {
                 Text("Nothing copied yet")
                     .font(.system(size: 14, weight: .medium))
-                Text("Text you copy shows up here.")
+                Text("Text and images you copy show up here.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else {
@@ -195,11 +204,21 @@ private struct ClipboardHistoryView: View {
 
 private struct ClipboardRow: View {
     let entry: ClipboardEntry
+    let imageURL: URL?
     let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            SourceAppIcon(bundleID: entry.sourceBundleID)
+            if let imageURL, let thumbnail = ImageLoader.image(at: imageURL, maxPixels: 64) {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            } else {
+                SourceAppIcon(bundleID: entry.sourceBundleID)
+            }
             Text(entry.title)
                 .font(.system(size: 13))
                 .lineLimit(1)
@@ -260,8 +279,30 @@ private struct SourceAppIcon: View {
     }
 }
 
+/// Downscaled images for thumbnails and the preview, decoded once and kept.
+@MainActor
+private enum ImageLoader {
+    private static var cache: [String: NSImage] = [:]
+
+    static func image(at url: URL, maxPixels: Int) -> NSImage? {
+        let key = "\(url.path)#\(maxPixels)"
+        if let cached = cache[key] { return cached }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        let image = NSImage(cgImage: cgImage, size: .zero)
+        cache[key] = image
+        return image
+    }
+}
+
 private struct ClipboardPreview: View {
     let entry: ClipboardEntry
+    let imageURL: URL?
 
     /// Very long copies are cut short in the preview so it stays quick; pasting uses all of it.
     private var previewText: String {
@@ -270,13 +311,30 @@ private struct ClipboardPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                Text(previewText)
-                    .font(.system(size: 13))
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(18)
+            if let imageURL {
+                Group {
+                    if let image = ImageLoader.image(at: imageURL, maxPixels: 1200) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
+                    } else {
+                        Text("The image file is missing.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(18)
+            } else {
+                ScrollView {
+                    Text(previewText)
+                        .font(.system(size: 13))
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                }
             }
             Divider()
             VStack(spacing: 8) {
@@ -290,6 +348,9 @@ private struct ClipboardPreview: View {
     }
 
     private var size: String {
+        if let image = entry.image {
+            return "\(image.width)×\(image.height), " + image.byteCount.formatted(.byteCount(style: .file))
+        }
         let characters = entry.text.count
         let lines = entry.text.split(whereSeparator: \.isNewline).count
         return "\(characters) characters" + (lines > 1 ? ", \(lines) lines" : "")
