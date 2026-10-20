@@ -4,7 +4,7 @@ import ShorthandCore
 
 /// Watches every key press system-wide through a Core Graphics event tap and
 /// reports when the text typed so far ends with a snippet's abbreviation
-/// or with the Prompt Bank trigger.
+/// or with the Prompt Bank trigger, and when the clipboard history hotkey (⌥⌘V) is pressed.
 /// Needs Accessibility permission; `start()` fails without it.
 @MainActor
 final class KeyMonitor {
@@ -14,6 +14,7 @@ final class KeyMonitor {
     }
     var onMatch: ((Snippet) -> Void)?
     var onPromptBankTrigger: (() -> Void)?
+    var onClipboardHotkey: (() -> Void)?
 
     private var buffer = TypingBuffer()
     private var tap: CFMachPort?
@@ -29,11 +30,11 @@ final class KeyMonitor {
 
         // The tap runs on the main run loop, so the callback is on the main thread.
         let callback: CGEventTapCallBack = { _, type, event, refcon in
-            if let refcon {
-                let monitor = Unmanaged<KeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
-                MainActor.assumeIsolated { monitor.handle(type, event) }
-            }
-            return Unmanaged.passUnretained(event)
+            guard let refcon else { return Unmanaged.passUnretained(event) }
+            let monitor = Unmanaged<KeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
+            let swallow = MainActor.assumeIsolated { monitor.handle(type, event) }
+            // Returning nil drops the event, so the app never sees it.
+            return swallow ? nil : Unmanaged.passUnretained(event)
         }
 
         guard let tap = CGEvent.tapCreate(
@@ -52,38 +53,47 @@ final class KeyMonitor {
         return true
     }
 
-    private func handle(_ type: CGEventType, _ event: CGEvent) {
+    /// Returns true to swallow the event.
+    private func handle(_ type: CGEventType, _ event: CGEvent) -> Bool {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             // macOS switches the tap off if a callback is ever slow; turn it back on.
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return
+            return false
         case .keyDown:
             break
         default:
             // A click can move the caret, so what we buffered no longer applies.
             buffer.reset()
-            return
+            return false
         }
 
         // Skip the keys we post ourselves while expanding.
-        if event.getIntegerValueField(.eventSourceUserData) == Expander.eventTag { return }
-        if isPaused || isTypingIntoShorthand { return }
+        if event.getIntegerValueField(.eventSourceUserData) == Expander.eventTag { return false }
+
+        // Works even while expansion is paused: it's a separate feature.
+        if isClipboardHotkey(event) {
+            buffer.reset()
+            DispatchQueue.main.async { [onClipboardHotkey] in onClipboardHotkey?() }
+            return true
+        }
+
+        if isPaused || isTypingIntoShorthand { return false }
 
         if event.flags.contains(.maskCommand) || event.flags.contains(.maskControl) {
             buffer.reset()
-            return
+            return false
         }
 
         switch event.getIntegerValueField(.keyboardEventKeycode) {
         case KeyCode.delete:
             buffer.deleteBackward()
-            return
+            return false
         case KeyCode.return, KeyCode.enter, KeyCode.tab, KeyCode.escape, KeyCode.forwardDelete,
              KeyCode.leftArrow, KeyCode.rightArrow, KeyCode.upArrow, KeyCode.downArrow,
              KeyCode.home, KeyCode.end, KeyCode.pageUp, KeyCode.pageDown:
             buffer.reset()
-            return
+            return false
         default:
             break
         }
@@ -92,7 +102,7 @@ final class KeyMonitor {
         var characters = [UniChar](repeating: 0, count: 8)
         event.keyboardGetUnicodeString(maxStringLength: characters.count, actualStringLength: &length, unicodeString: &characters)
         // Dead keys (the first half of an accented letter) produce nothing yet.
-        guard length > 0 else { return }
+        guard length > 0 else { return false }
         buffer.append(String(utf16CodeUnits: characters, count: length))
 
         // Let this last key reach the app before we start deleting what was typed.
@@ -103,6 +113,15 @@ final class KeyMonitor {
             buffer.reset()
             DispatchQueue.main.async { [onPromptBankTrigger] in onPromptBankTrigger?() }
         }
+        return false
+    }
+
+    /// ⌥⌘V, with no Shift or Control.
+    private func isClipboardHotkey(_ event: CGEvent) -> Bool {
+        let flags = event.flags
+        return event.getIntegerValueField(.keyboardEventKeycode) == KeyCode.v
+            && flags.contains(.maskCommand) && flags.contains(.maskAlternate)
+            && !flags.contains(.maskShift) && !flags.contains(.maskControl)
     }
 
     /// Typing an abbreviation into Shorthand's own editor, fill-in form or picker shouldn't expand it.

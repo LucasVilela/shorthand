@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1 — in progress
+
+### Added
+- **Clipboard history.** Press **⌥⌘V** anywhere, or choose Clipboard History… in the menu
+  bar, to see what you've copied. Recent copies are grouped by day, each with the icon of the
+  app it came from and a full preview.
+  - **Paste (↵)** pastes an entry into the app you were in. **Copy (⌘C)** only puts it back
+    on the clipboard.
+  - **Save as Prompt (⌘S)** turns it into a Prompt Bank entry.
+  - **Delete (⌘⌫)** removes it from the history.
+- **Private by default.** History keeps text only, up to the last 200 copies, saved where
+  only you can read it. It never records passwords that password managers mark as concealed,
+  or Shorthand's own snippet pastes. Turn it off with Record Clipboard History in the menu
+  bar, or clear it with Clear Clipboard History.
+
 ## 1.0 — 20 Oct 2026
 
 The first release: a menu-bar text expander for macOS, in the spirit of TextExpander.

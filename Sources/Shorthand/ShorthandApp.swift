@@ -48,6 +48,17 @@ struct MenuContent: View {
             Divider()
             Text("Tip: type \(PromptBank.trigger) anywhere to search")
         }
+        Button("Clipboard History…") {
+            // Wait for the menu to close so a paste lands in the app you were using.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { model.openClipboardHistory() }
+        }
+        .keyboardShortcut("v", modifiers: [.command, .option])
+        Toggle("Record Clipboard History", isOn: Binding(
+            get: { model.clipboard.isRecording },
+            set: { model.clipboard.isRecording = $0 }
+        ))
+        Button("Clear Clipboard History") { model.clipboard.clear() }
+            .disabled(model.clipboard.history.entries.isEmpty)
         Divider()
         Toggle("Pause Expansion", isOn: $model.isPaused)
         Toggle("Open at Login", isOn: $model.opensAtLogin)

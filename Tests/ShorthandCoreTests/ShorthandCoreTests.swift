@@ -282,3 +282,47 @@ import Testing
         #expect(asked == [["Client Name", "Day", "project"], ["Client Name", "project"]])
     }
 }
+
+@Suite struct ClipboardHistoryTests {
+    @Test func newestFirstAndDuplicatesMoveToTheTop() {
+        var history = ClipboardHistory()
+        history.record("one")
+        history.record("two")
+        history.record("one", sourceName: "Notes")
+        #expect(history.entries.map(\.text) == ["one", "two"])
+        #expect(history.entries.first?.sourceName == "Notes")
+    }
+
+    @Test func skipsBlankAndVeryLongText() {
+        var history = ClipboardHistory()
+        let blank = history.record("  \n\t")
+        let tooLong = history.record(String(repeating: "x", count: ClipboardHistory.maxLength + 1))
+        let padded = history.record(" padded ")
+        #expect(!blank && !tooLong && padded)
+        #expect(history.entries.map(\.text) == [" padded "])
+    }
+
+    @Test func keepsOnlyTheLimit() {
+        var history = ClipboardHistory(limit: 3)
+        for n in 1...5 { history.record("\(n)") }
+        #expect(history.entries.map(\.text) == ["5", "4", "3"])
+        #expect(ClipboardHistory(entries: history.entries, limit: 2).entries.count == 2)
+    }
+
+    @Test func searchMatchesTextOrSourceApp() {
+        var history = ClipboardHistory()
+        history.record("Invoice 42", sourceName: "Mail")
+        history.record("let x = 1", sourceName: "Xcode")
+        #expect(history.search("").map(\.text) == ["let x = 1", "Invoice 42"])
+        #expect(history.search("invoice").map(\.text) == ["Invoice 42"])
+        #expect(history.search("xcode").map(\.text) == ["let x = 1"])
+    }
+
+    @Test func removeAndTitle() {
+        var history = ClipboardHistory()
+        history.record("\n  first line\nsecond")
+        #expect(history.entries.first?.title == "first line")
+        history.remove(id: history.entries[0].id)
+        #expect(history.entries.isEmpty)
+    }
+}

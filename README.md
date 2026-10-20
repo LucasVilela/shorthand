@@ -14,6 +14,9 @@ and it becomes your full text. Type `;;` to search a bank of prompts you reuse o
   - Any other `{Name}` is asked for in a small form when you insert the snippet.
 - **Prompt Bank:** snippets with no abbreviation. Type `;;` anywhere for a searchable
   launcher, or pick one from the menu bar.
+- **Clipboard history:** press ⌥⌘V to search what you've copied and paste it again. It keeps
+  text only, the last 200 copies, and skips passwords that password managers mark as
+  concealed.
 
 The [changelog](CHANGELOG.md) covers every feature.
 
@@ -28,7 +31,8 @@ The [changelog](CHANGELOG.md) covers every feature.
 3. When asked, turn Shorthand on under System Settings → Privacy & Security →
    **Accessibility**. It needs this to see what you type and to paste snippets.
 
-Snippets and variables are saved in `~/Library/Application Support/Shorthand/`.
+Snippets, variables and clipboard history are saved in
+`~/Library/Application Support/Shorthand/`.
 
 ## Build from source
 

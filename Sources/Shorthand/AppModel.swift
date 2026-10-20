@@ -8,6 +8,7 @@ import ShorthandCore
 @Observable
 final class AppModel {
     let store = SnippetStore()
+    let clipboard = ClipboardHistoryStore()
 
     var isPaused = false {
         didSet { monitor.isPaused = isPaused }
@@ -36,6 +37,7 @@ final class AppModel {
         monitor.matcher = AbbreviationMatcher(snippets: store.snippets)
         monitor.onMatch = { Expander.expand($0) }
         monitor.onPromptBankTrigger = { [store] in Expander.openPromptBank(store.snippets) }
+        monitor.onClipboardHotkey = { [weak self] in self?.openClipboardHistory() }
         store.onChange = { [monitor] in monitor.matcher = AbbreviationMatcher(snippets: $0) }
         Expander.variables = store.variableValues
         store.onVariablesChange = { Expander.variables = Variable.lookup($0) }
@@ -46,6 +48,13 @@ final class AppModel {
         // Picks up the permission once it's granted, and keeps the Secure Input status current.
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
+        }
+    }
+
+    func openClipboardHistory() {
+        Expander.openClipboardHistory(clipboard) { [store] text in
+            // No abbreviation: it goes in the Prompt Bank, titled by its first line.
+            store.snippets.append(Snippet(abbreviation: "", content: text))
         }
     }
 

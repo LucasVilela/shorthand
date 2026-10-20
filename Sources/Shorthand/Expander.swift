@@ -36,6 +36,39 @@ enum Expander {
         }
     }
 
+    /// Shows clipboard history over the frontmost app. Paste puts the entry on the
+    /// clipboard and pastes it there; Copy only puts it on the clipboard.
+    static func openClipboardHistory(_ store: ClipboardHistoryStore, saveAsPrompt: @escaping @MainActor (String) -> Void) {
+        let target = NSWorkspace.shared.frontmostApplication
+        ClipboardHistoryPanel.present(store) { choice in
+            guard let choice else {
+                if let target, !target.isTerminated { reactivate(target) {} }
+                return
+            }
+            if case .saveAsPrompt(let text) = choice {
+                saveAsPrompt(text)
+            }
+            guard let target, !target.isTerminated else { return }
+            reactivate(target) {
+                switch choice {
+                case .paste(let text):
+                    // Not marked transient: pasting an old entry makes it the newest.
+                    putOnClipboard(text)
+                    press(KeyCode.v, flags: .maskCommand)
+                case .copy(let text):
+                    putOnClipboard(text)
+                case .saveAsPrompt:
+                    break
+                }
+            }
+        }
+    }
+
+    private static func putOnClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     /// Inserts `snippet` at the caret of the frontmost app, after deleting the `count`
     /// characters just typed (an abbreviation or the trigger).
     static func insert(_ snippet: Snippet, replacing count: Int = 0) {
