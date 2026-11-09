@@ -88,4 +88,4 @@ From then on, release with `NOTARY_PROFILE=shorthand-notary ./scripts/release.sh
 
 ## Licence
 
-Private. All rights reserved, see [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).
